@@ -6,24 +6,22 @@ const { google } = require('googleapis');
  */
 const getDriveClient = () => {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const rawKey = process.env.GOOGLE_PRIVATE_KEY || '';
+  let rawKey = process.env.GOOGLE_PRIVATE_KEY || '';
 
   if (!email) throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL is not set in .env');
   if (!rawKey) throw new Error('GOOGLE_PRIVATE_KEY is not set in .env');
 
-  // Handle both formats:
-  // 1. Key stored with literal \n in .env  -> replace \\n -> \n
-  // 2. Key already has real newlines (unlikely in .env but handle it)
-  const privateKey = rawKey.includes('\\n')
-    ? rawKey.replace(/\\n/g, '\n')
-    : rawKey;
+  // 1. Remove literal double quotes if they wrap the key (common in some .env setups)
+  if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
+    rawKey = rawKey.slice(1, -1);
+  }
 
-  console.log('🔑 Drive client: email =', email);
-  console.log('🔑 Drive client: key starts with =', privateKey.slice(0, 40));
+  // 2. Handle literal \n characters -> real newlines
+  const privateKey = rawKey.replace(/\\n/g, '\n');
 
   const auth = new google.auth.GoogleAuth({
     credentials: {
-      client_email: email,
+      client_email: email.trim(),
       private_key: privateKey,
     },
     scopes: ['https://www.googleapis.com/auth/drive'],
@@ -40,7 +38,7 @@ const getDriveClient = () => {
  * @returns {Promise<string>} - Shareable Google Drive view URL
  */
 const uploadToDrive = async (fileBuffer, originalName, mimeType) => {
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
   if (!folderId) throw new Error('GOOGLE_DRIVE_FOLDER_ID is not set in .env');
 
   console.log('📁 Uploading to folder:', folderId);
@@ -48,10 +46,7 @@ const uploadToDrive = async (fileBuffer, originalName, mimeType) => {
 
   const drive = getDriveClient();
 
-  const { Readable } = require('stream');
-  const stream = Readable.from(fileBuffer);
-
-  // Upload the file
+  // Create file on Drive
   let fileId;
   try {
     const { data } = await drive.files.create({
@@ -61,15 +56,22 @@ const uploadToDrive = async (fileBuffer, originalName, mimeType) => {
       },
       media: {
         mimeType,
-        body: stream,
+        body: require('stream').Readable.from(fileBuffer),
       },
       fields: 'id, name',
+      supportsAllDrives: true, // Required if the folder is in a Shared Drive
     });
     fileId = data.id;
     console.log('✅ File uploaded to Drive, ID:', fileId);
   } catch (err) {
     console.error('❌ Drive upload error:', err.message);
-    console.error('   Details:', err?.response?.data || err);
+    if (err.response && err.response.data) {
+      console.error('   API Details:', JSON.stringify(err.response.data));
+    }
+    // If folder not found, provide a clearer message
+    if (err.message.includes('File not found')) {
+      throw new Error(`Folder not found: ${folderId}. 1) Verify the folder ID in .env matches your Drive URL. 2) Ensure the Service Account (${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL}) has "Editor" access.`);
+    }
     throw err;
   }
 
@@ -78,11 +80,12 @@ const uploadToDrive = async (fileBuffer, originalName, mimeType) => {
     await drive.permissions.create({
       fileId,
       requestBody: { role: 'reader', type: 'anyone' },
+      supportsAllDrives: true, // Required for Shared Drives
     });
     console.log('✅ File made public');
   } catch (err) {
     console.error('⚠️ Could not set public permission:', err.message);
-    // Non-fatal — still return the URL
+    // Non-fatal — still return the view URL
   }
 
   return `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
