@@ -6,17 +6,24 @@ const transporter  = require('../config/mailer');
 const getStats = async (req, res) => {
   try {
     const [event, totalCount, attendedCount] = await Promise.all([
-      Event.findOne().lean(),
+      Event.findOne(),
       Registration.countDocuments(),
       Registration.countDocuments({ attendedAt: { $ne: null } }),
     ]);
 
+    // Auto-correct stored bookedSeats if it has drifted from the real count
+    if (event && event.bookedSeats !== totalCount) {
+      await Event.findByIdAndUpdate(event._id, { bookedSeats: totalCount });
+    }
+
+    const totalSeats = event?.totalSeats ?? 0;
+
     return res.json({
       success: true,
       stats: {
-        totalSeats:         event?.totalSeats  ?? 0,
-        bookedSeats:        event?.bookedSeats ?? 0,
-        remainingSeats:     (event?.totalSeats ?? 0) - (event?.bookedSeats ?? 0),
+        totalSeats,
+        bookedSeats:        totalCount,               // always live
+        remainingSeats:     totalSeats - totalCount,
         totalRegistrations: totalCount,
         attendedCount,
       },
@@ -60,8 +67,9 @@ const deleteRegistration = async (req, res) => {
     const reg = await Registration.findByIdAndDelete(id);
     if (!reg) return res.status(404).json({ error: 'Registration not found' });
 
-    // Decrement booked seats
-    await Event.findOneAndUpdate({}, { $inc: { bookedSeats: -1 } });
+    // Re-sync bookedSeats to the live count after deletion (prevents going negative)
+    const liveCount = await Registration.countDocuments();
+    await Event.findOneAndUpdate({}, { bookedSeats: liveCount });
 
     return res.json({ success: true, message: 'Registration deleted successfully' });
   } catch (err) {
