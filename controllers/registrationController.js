@@ -1,7 +1,7 @@
-const OTP          = require('../models/OTP');
+const OTP = require('../models/OTP');
 const Registration = require('../models/Registration');
-const Event        = require('../models/Event');
-const transporter  = require('../config/mailer');
+const Event = require('../models/Event');
+const transporter = require('../config/mailer');
 
 const ALLOWED_DOMAINS = (process.env.ALLOWED_EMAIL_DOMAIN || 'cuchd.in').split(',').map(d => d.trim());
 
@@ -17,12 +17,12 @@ const sendConfirmationEmail = async ({ name, email, cluster, department, categor
   });
 
   const categoryNames = {
-    research:       '🔬 Research Award',
-    innovation:     '💡 New Innovators',
+    research: '🔬 Research Award',
+    innovation: '💡 New Innovators',
     entrepreneurship: '🚀 Entrepreneurship',
-    competitions:   '🏆 Competitions & Hackathons',
-    patents:        '📜 Patents',
-    certifications: '🎓 Certifications / Leadership',
+    competitions: '🏆 Competitions & Hackathons',
+    patents: '📜 Patents',
+    leadership: '🎓 Leadership',
   };
 
   const catListHtml = categories.map(c =>
@@ -178,10 +178,10 @@ const register = async (req, res) => {
 
     // ── 4. Insert registration ────────────────────────────────────────────────
     await Registration.create({
-      name:       name.trim(),
-      email:      normalizedEmail,
-      uid:        uid.trim(),
-      cluster:    cluster.trim(),
+      name: name.trim(),
+      email: normalizedEmail,
+      uid: uid.trim(),
+      cluster: cluster.trim(),
       department: department.trim(),
       categories,
     });
