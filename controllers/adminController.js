@@ -490,4 +490,42 @@ const markAttendance = async (req, res) => {
   }
 };
 
-module.exports = { getStats, getRegistrations, deleteRegistration, getEvent, updateEvent, adminLogin, sendTickets, markAttendance };
+// ── PUT /admin/registrations/:id/evaluation ──────────────────────────────────
+const updateEvaluation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, remarks } = req.body;
+
+    if (!id) return res.status(400).json({ error: 'Registration ID required' });
+    if (!status) return res.status(400).json({ error: 'Status is required' });
+
+    const updated = await Registration.findByIdAndUpdate(
+      id,
+      { evaluationStatus: status, evaluationRemarks: remarks || null },
+      { new: true }
+    );
+
+    if (!updated) return res.status(404).json({ error: 'Registration not found' });
+
+    return res.json({
+      success: true,
+      message: `Evaluation updated to ${status}`,
+      registration: updated,
+    });
+  } catch (err) {
+    console.error('updateEvaluation error:', err.message);
+    return res.status(500).json({ error: 'Failed to update evaluation' });
+  }
+};
+
+module.exports = {
+  getStats,
+  getRegistrations,
+  deleteRegistration,
+  getEvent,
+  updateEvent,
+  adminLogin,
+  sendTickets,
+  markAttendance,
+  updateEvaluation,
+};

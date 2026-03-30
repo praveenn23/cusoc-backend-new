@@ -13,9 +13,11 @@ const registrationSchema = new mongoose.Schema(
     cluster:      { type: String, trim: true, default: null },
     department:   { type: String, trim: true, default: null },
     type:         { type: String, default: null },
-    categories:   { type: Array,  default: [] },
-    ticketSentAt: { type: Date,   default: null },
-    attendedAt:   { type: Date,   default: null },
+    categories:        { type: Array,  default: [] },
+    ticketSentAt:      { type: Date,   default: null },
+    attendedAt:        { type: Date,   default: null },
+    evaluationStatus:  { type: String, enum: ['Pending', 'Approved', 'Rejected'], default: 'Pending' },
+    evaluationRemarks: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -25,9 +27,11 @@ registrationSchema.set('toJSON', {
   virtuals: true,
   transform: (doc, ret) => {
     ret.id             = ret._id;
-    ret.created_at     = ret.createdAt;
-    ret.ticket_sent_at = ret.ticketSentAt;
-    ret.attended_at    = ret.attendedAt;
+    ret.created_at         = ret.createdAt;
+    ret.ticket_sent_at     = ret.ticketSentAt;
+    ret.attended_at        = ret.attendedAt;
+    ret.evaluation_status  = ret.evaluationStatus;
+    ret.evaluation_remarks = ret.evaluationRemarks;
     delete ret._id;
     delete ret.__v;
     return ret;
