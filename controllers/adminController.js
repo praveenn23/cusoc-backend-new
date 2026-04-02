@@ -206,7 +206,10 @@ const sendTickets = async (req, res) => {
           const department = reg.department || 'N/A';
 
           const approvedCategories = Array.isArray(reg.categories)
-            ? reg.categories.filter(c => c.status === 'Approved' || reg.evaluation_status === 'Approved')
+            ? reg.categories.filter(c => {
+                const effectiveStatus = c.status || reg.evaluation_status || 'Pending';
+                return effectiveStatus === 'Approved';
+              })
             : [];
           const approvedCategoryNames = approvedCategories.map(c => 
             (c.type || '').charAt(0).toUpperCase() + (c.type || '').slice(1)
