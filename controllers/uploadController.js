@@ -4,7 +4,7 @@ const { uploadToDrive } = require('../config/gdrive');
 // Store file in memory (no disk I/O) — works perfectly on Vercel serverless
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB max
+  limits: { fileSize: 200 * 1024 }, // 200 KB max
   fileFilter: (req, file, cb) => {
     const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
     if (allowed.includes(file.mimetype)) {
