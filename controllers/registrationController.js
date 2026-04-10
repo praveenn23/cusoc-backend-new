@@ -23,6 +23,7 @@ const sendConfirmationEmail = async ({ name, email, cluster, department, categor
     competitions: '🏆 Competitions & Hackathons',
     patents: '📜 Patents',
     leadership: '🎓 Leadership',
+    other: '✨ Govt Exams & Awards',
   };
 
   const catListHtml = categories.map(c =>
