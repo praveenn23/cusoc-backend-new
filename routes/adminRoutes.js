@@ -11,6 +11,8 @@ const {
     sendTickets,
     markAttendance,
     updateEvaluation,
+    exportRegistrations,
+    updateAward,
 } = require('../controllers/adminController');
 
 // ── No-cache middleware for ALL admin routes ─────────────────────────────────
@@ -31,11 +33,13 @@ router.use(adminAuth);
 
 router.get('/stats', getStats);
 router.get('/registrations', getRegistrations);
+router.get('/registrations/export', exportRegistrations);
 router.delete('/registrations/:id', deleteRegistration);
 router.get('/event', getEvent);
 router.put('/event', updateEvent);
 router.post('/send-tickets', sendTickets);
 router.post('/mark-attendance', markAttendance);
 router.put('/registrations/:id/evaluation', updateEvaluation);
+router.put('/registrations/:id/award', updateAward);
 
 module.exports = router;

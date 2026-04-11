@@ -42,6 +42,14 @@ const getRegistrations = async (req, res) => {
       created_at:     r.createdAt,
       ticket_sent_at: r.ticketSentAt,
       attended_at:    r.attendedAt,
+      // Add flattened category details for easier frontend exports
+      detailed_categories: (r.categories || []).map(c => {
+        const details = c.data ? Object.entries(c.data)
+          .filter(([_, v]) => v !== null && v !== undefined && v !== '')
+          .map(([k, v]) => `${k.replace(/_/g, ' ').toUpperCase()}: ${v}`)
+          .join(', ') : '';
+        return `${(c.type || '').toUpperCase()}: ${details}${c.award ? ` [AWARD: ${c.award.toUpperCase()}]` : ''}`;
+      }).join(' | ')
     }));
 
     return res.json({ success: true, registrations: mapped });
@@ -552,4 +560,125 @@ const updateEvaluation = async (req, res) => {
   }
 };
 
-module.exports = { getStats, getRegistrations, deleteRegistration, getEvent, updateEvent, adminLogin, sendTickets, markAttendance, updateEvaluation };
+// ── GET /admin/registrations/export ──────────────────────────────────────────
+const exportRegistrations = async (req, res) => {
+  try {
+    const registrations = await Registration.find().sort({ createdAt: -1 }).lean();
+
+    if (!registrations || registrations.length === 0) {
+      return res.status(404).json({ error: 'No registrations found to export' });
+    }
+
+    // Define CSV headers
+    const headers = [
+      'Name',
+      'Email',
+      'UID/EID',
+      'Department',
+      'Cluster',
+      'Overall Status',
+      'Attendance Status',
+      'Registered At',
+      'Category Type',
+      'Category Status',
+      'Award/Grant',
+      'Category Details'
+    ];
+
+    const rows = [headers.join(',')];
+
+    registrations.forEach(reg => {
+      const basicInfo = [
+        `"${reg.name || ''}"`,
+        `"${reg.email || ''}"`,
+        `"${reg.uid || ''}"`,
+        `"${reg.department || ''}"`,
+        `"${reg.cluster || ''}"`,
+        `"${reg.evaluation_status || 'Pending'}"`,
+        `"${reg.attendedAt ? 'Present' : 'Absent'}"`,
+        `"${reg.createdAt ? new Date(reg.createdAt).toLocaleString('en-IN') : ''}"`
+      ];
+
+      if (reg.categories && Array.isArray(reg.categories) && reg.categories.length > 0) {
+        reg.categories.forEach(cat => {
+          // Flatten category details from cat.data
+          const details = cat.data ? Object.entries(cat.data)
+            .filter(([_, v]) => v !== null && v !== undefined && v !== '')
+            .map(([k, v]) => {
+                // Formatting key: role -> Role, comp_name -> Comp Name
+                const displayKey = k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                return `${displayKey}: ${v}`;
+            })
+            .join('; ') : '';
+
+          const row = [
+            ...basicInfo,
+            `"${cat.type || 'N/A'}"`,
+            `"${cat.status || 'Pending'}"`,
+            `"${cat.award || 'None'}"`,
+            `"${details.replace(/"/g, '""')}"` // Escape quotes for CSV
+          ];
+          rows.push(row.join(','));
+        });
+      } else {
+        // No categories case
+        const row = [...basicInfo, '"N/A"', '"N/A"', '"None"', '""'];
+        rows.push(row.join(','));
+      }
+    });
+
+    const csvContent = rows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=registrations_export_${new Date().toISOString().split('T')[0]}.csv`);
+    
+    return res.status(200).send(csvContent);
+
+  } catch (err) {
+    console.error('exportRegistrations error:', err.message);
+    return res.status(500).json({ error: 'Failed to generate export file' });
+  }
+};
+
+// ── PUT /admin/registrations/:id/award ──────────────────────────────────────
+const updateAward = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { award, categoryIndex } = req.body;
+
+    if (!id || award === undefined || categoryIndex === undefined) {
+      return res.status(400).json({ error: 'Missing id, award, or categoryIndex' });
+    }
+
+    const reg = await Registration.findById(id);
+    if (!reg) return res.status(404).json({ error: 'Registration not found' });
+
+    const idx = parseInt(categoryIndex, 10);
+    if (isNaN(idx) || idx < 0 || idx >= reg.categories.length) {
+      return res.status(400).json({ error: 'Invalid category index' });
+    }
+
+    const categories = [...reg.categories];
+    categories[idx] = { ...categories[idx], award };
+
+    const updated = await Registration.findByIdAndUpdate(id, { categories }, { new: true });
+    return res.json({ success: true, registration: updated });
+  } catch (err) {
+    console.error('updateAward error:', err.message);
+    return res.status(500).json({ error: 'Failed to update award' });
+  }
+};
+
+module.exports = {
+  getStats,
+  getRegistrations,
+  deleteRegistration,
+  getEvent,
+  updateEvent,
+  adminLogin,
+  sendTickets,
+  markAttendance,
+  updateEvaluation,
+  exportRegistrations,
+  updateAward
+};
