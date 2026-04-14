@@ -219,9 +219,21 @@ const sendTickets = async (req, res) => {
                 return effectiveStatus === 'Approved';
               })
             : [];
-          const approvedCategoryNames = approvedCategories.map(c => 
-            (c.type || '').charAt(0).toUpperCase() + (c.type || '').slice(1)
-          );
+          const approvedCategoryNames = approvedCategories.map(c => {
+            const catName = (c.type || '').charAt(0).toUpperCase() + (c.type || '').slice(1);
+            let specificTitle = '';
+            if (c.data) {
+                // Try to find the most relevant "title" field for the category
+                specificTitle = c.data.comp_name || 
+                                c.data.research_name || 
+                                c.data.patent_title || 
+                                c.data.startup_name || 
+                                c.data.club_name || 
+                                c.data.cert_title || 
+                                c.data.award_name || '';
+            }
+            return specificTitle ? `${catName}: <strong>${specificTitle}</strong>` : catName;
+          });
 
           let selectedCategoryHtml = '';
           if (approvedCategoryNames.length > 0) {
@@ -229,7 +241,7 @@ const sendTickets = async (req, res) => {
                   <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;border-top:1px dashed #e0e0e0;padding-top:12px;">
                     <tr>
                       <td width="140" style="font-size:12px;color:#9aa0a6;text-transform:uppercase;letter-spacing:.6px;">Selected For</td>
-                      <td style="font-size:14px;font-weight:700;color:#137333;">${approvedCategoryNames.join(', ')}</td>
+                      <td style="font-size:14px;color:#202124;">${approvedCategoryNames.join('<br />')}</td>
                     </tr>
                   </table>`;
           }
@@ -258,8 +270,8 @@ const sendTickets = async (req, res) => {
             <p style="margin:0;color:#1a73e8;font-size:15px;font-weight:600;">Dear ${reg.name},</p>
             <p style="margin:6px 0 0;color:#3c4043;font-size:14px;line-height:1.6;">
               Greetings from the Organizing Team!<br />
-              Thank you for applying to <strong>${event.title}</strong>.<br />
-              We are pleased to inform you that your application has been <strong>approved</strong>!
+              We are pleased to inform you that your nomination has been <strong>approved</strong> for the Achievers Day Award.<br />
+              For more detailed info, please join the WhatsApp group linked below.
             </p>
           </td>
         </tr>
@@ -349,6 +361,7 @@ const sendTickets = async (req, res) => {
                 <li>Duty Leave (DL) attendance will be granted only after successful verification at the venue.</li>
                 <li>Please carry your <strong>University ID Card</strong> for identity confirmation.</li>
                 <li>Kindly ensure that the above details are correct. In case of any discrepancy, contact the organizing team <strong>before the event date</strong>.</li>
+                <li><strong>Dress Code:</strong> Semi Formals</li>
               </ul>
             </div>
           </td>
@@ -403,8 +416,8 @@ const sendTickets = async (req, res) => {
             <p style="margin:0;font-size:13px;color:#5f6368;line-height:2;">
               Best Regards,<br />
               <strong>ABHYUTTHANAM Organizing Team</strong><br />
-              ${event.title}<br />
               Chandigarh University<br />
+              <span style="font-weight:600;color:#3c4043;">POC Mobile No. 8708255863, 9773553664</span><br />
               <span style="color:#9aa0a6;font-size:12px;">Approved under: University Level (Co-Curricular Clubs) | ACO Certified</span>
             </p>
           </td>
@@ -644,7 +657,7 @@ const exportRegistrations = async (req, res) => {
 const updateAward = async (req, res) => {
   try {
     const { id } = req.params;
-    const { award, categoryIndex } = req.body;
+    const { award, categoryIndex, isFaculty } = req.body;
 
     if (!id || award === undefined || categoryIndex === undefined) {
       return res.status(400).json({ error: 'Missing id, award, or categoryIndex' });
@@ -659,7 +672,8 @@ const updateAward = async (req, res) => {
     }
 
     const categories = [...reg.categories];
-    categories[idx] = { ...categories[idx], award };
+    const field = isFaculty ? 'faculty_award' : 'award';
+    categories[idx] = { ...categories[idx], [field]: award };
 
     const updated = await Registration.findByIdAndUpdate(id, { categories }, { new: true });
     return res.json({ success: true, registration: updated });
