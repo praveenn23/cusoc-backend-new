@@ -35,14 +35,12 @@ const getRegistrations = async (req, res) => {
       .limit(5000)
       .lean();
 
-    // Apply toJSON-like transform for snake_case compatibility
     const mapped = registrations.map(r => ({
       ...r,
       id:             r._id,
       created_at:     r.createdAt,
       ticket_sent_at: r.ticketSentAt,
       attended_at:    r.attendedAt,
-      // Add flattened category details for easier frontend exports
       detailed_categories: (r.categories || []).map(c => {
         const details = c.data ? Object.entries(c.data)
           .filter(([_, v]) => v !== null && v !== undefined && v !== '')
@@ -163,8 +161,7 @@ const adminLogin = async (req, res) => {
 // ── POST /admin/send-tickets ─────────────────────────────────────────────────
 const sendTickets = async (req, res) => {
   try {
-    // Fetch registrations that have NOT been sent a ticket yet AND are approved
-    const registrations = await Registration.find({ 
+    const registrations = await Registration.find({
       ticketSentAt: null,
       $or: [
         { evaluation_status: 'Approved' },
@@ -175,7 +172,6 @@ const sendTickets = async (req, res) => {
       .limit(5000)
       .lean();
 
-    // Calculate how many APPROVED people already got their ticket
     const totalApprovedCount = await Registration.countDocuments({
       $or: [
         { evaluation_status: 'Approved' },
@@ -209,7 +205,6 @@ const sendTickets = async (req, res) => {
       const chunk = registrations.slice(i, i + CONCURRENCY);
       await Promise.all(
         chunk.map(async (reg) => {
-          // Last 4 hex chars of ObjectId (uppercase) — same pattern as before
           const ticketNo   = `EVT-${reg._id.toString().slice(-4).toUpperCase()}`;
           const department = reg.department || 'N/A';
 
@@ -223,14 +218,13 @@ const sendTickets = async (req, res) => {
             const catName = (c.type || '').charAt(0).toUpperCase() + (c.type || '').slice(1);
             let specificTitle = '';
             if (c.data) {
-                // Try to find the most relevant "title" field for the category
-                specificTitle = c.data.comp_name || 
-                                c.data.research_name || 
-                                c.data.patent_title || 
-                                c.data.startup_name || 
-                                c.data.club_name || 
-                                c.data.cert_title || 
-                                c.data.award_name || '';
+              specificTitle = c.data.comp_name ||
+                              c.data.research_name ||
+                              c.data.patent_title ||
+                              c.data.startup_name ||
+                              c.data.club_name ||
+                              c.data.cert_title ||
+                              c.data.award_name || '';
             }
             return specificTitle ? `${catName}: <strong>${specificTitle}</strong>` : catName;
           });
@@ -447,8 +441,6 @@ const sendTickets = async (req, res) => {
               html,
             });
             results.sent++;
-
-            // Stamp ticketSentAt so this person is never emailed again
             await Registration.findByIdAndUpdate(reg._id, { ticketSentAt: new Date() });
           } catch (mailErr) {
             results.failed++;
@@ -488,7 +480,6 @@ const markAttendance = async (req, res) => {
       return res.status(400).json({ error: 'Ticket code must be exactly 4 alphanumeric characters.' });
     }
 
-    // Find registration by last 4 chars of the MongoDB ObjectId (hex)
     const registrations = await Registration.find().lean().limit(5000);
     const reg = registrations.find(
       r => r._id.toString().slice(-4).toUpperCase() === code
@@ -500,7 +491,6 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    // Duplicate scan check
     if (reg.attendedAt) {
       return res.status(409).json({
         error: 'Already marked present!',
@@ -516,7 +506,6 @@ const markAttendance = async (req, res) => {
       });
     }
 
-    // Mark as attended
     await Registration.findByIdAndUpdate(reg._id, { attendedAt: new Date() });
 
     console.log(`✅ Attendance marked for ${reg.name} (EVT-${code})`);
@@ -565,7 +554,6 @@ const updateEvaluation = async (req, res) => {
     }
 
     const updated = await Registration.findByIdAndUpdate(id, updatePayload, { new: true });
-
     return res.json({ success: true, registration: updated });
   } catch (err) {
     console.error('updateEvaluation error:', err.message);
@@ -582,20 +570,10 @@ const exportRegistrations = async (req, res) => {
       return res.status(404).json({ error: 'No registrations found to export' });
     }
 
-    // Define CSV headers
     const headers = [
-      'Name',
-      'Email',
-      'UID/EID',
-      'Department',
-      'Cluster',
-      'Overall Status',
-      'Attendance Status',
-      'Registered At',
-      'Category Type',
-      'Category Status',
-      'Award/Grant',
-      'Category Details'
+      'Name', 'Email', 'UID/EID', 'Department', 'Cluster',
+      'Overall Status', 'Attendance Status', 'Registered At',
+      'Category Type', 'Category Status', 'Award/Grant', 'Category Details'
     ];
 
     const rows = [headers.join(',')];
@@ -614,39 +592,31 @@ const exportRegistrations = async (req, res) => {
 
       if (reg.categories && Array.isArray(reg.categories) && reg.categories.length > 0) {
         reg.categories.forEach(cat => {
-          // Flatten category details from cat.data
           const details = cat.data ? Object.entries(cat.data)
             .filter(([_, v]) => v !== null && v !== undefined && v !== '')
             .map(([k, v]) => {
-                // Formatting key: role -> Role, comp_name -> Comp Name
-                const displayKey = k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                return `${displayKey}: ${v}`;
-            })
-            .join('; ') : '';
-
+              const displayKey = k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+              return `${displayKey}: ${v}`;
+            }).join('; ') : '';
           const row = [
             ...basicInfo,
             `"${cat.type || 'N/A'}"`,
             `"${cat.status || 'Pending'}"`,
             `"${cat.award || 'None'}"`,
-            `"${details.replace(/"/g, '""')}"` // Escape quotes for CSV
+            `"${details.replace(/"/g, '""')}"`
           ];
           rows.push(row.join(','));
         });
       } else {
-        // No categories case
         const row = [...basicInfo, '"N/A"', '"N/A"', '"None"', '""'];
         rows.push(row.join(','));
       }
     });
 
     const csvContent = rows.join('\n');
-
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename=registrations_export_${new Date().toISOString().split('T')[0]}.csv`);
-    
     return res.status(200).send(csvContent);
-
   } catch (err) {
     console.error('exportRegistrations error:', err.message);
     return res.status(500).json({ error: 'Failed to generate export file' });
@@ -683,6 +653,62 @@ const updateAward = async (req, res) => {
   }
 };
 
+// ── POST /admin/registrations/add ───────────────────────────────────────────
+// Admin-only: manually add an awardee with Approved status.
+// Seat logic:
+//   - If seats are available (remaining > 0): just consume one (bookedSeats++)
+//   - If house is full  (remaining === 0):  expand + consume (totalSeats++, bookedSeats++)
+const addAwardee = async (req, res) => {
+  try {
+    const { name, email, uid, cluster, department, categories } = req.body;
+
+    if (!name || !email) {
+      return res.status(400).json({ error: 'name and email are required' });
+    }
+
+    // Force every submitted category to Approved
+    const approvedCategories = (Array.isArray(categories) ? categories : []).map(cat => ({
+      ...cat,
+      status: 'Approved',
+    }));
+
+    const newReg = await Registration.create({
+      name:              name.trim(),
+      email:             email.trim().toLowerCase(),
+      uid:               uid?.trim() || null,
+      cluster:           cluster?.trim() || null,
+      department:        department?.trim() || null,
+      categories:        approvedCategories,
+      evaluation_status: 'Approved',
+    });
+
+    // Check current seat state AFTER the registration is created
+    const event = await Event.findOne().lean();
+    const remaining = (event?.totalSeats ?? 0) - (event?.bookedSeats ?? 0);
+    const noSeatsLeft = remaining <= 0;
+
+    // Only expand totalSeats if the venue is already full
+    const seatUpdate = noSeatsLeft
+      ? { $inc: { totalSeats: 1, bookedSeats: 1 } }   // full house → grow + consume
+      : { $inc: { bookedSeats: 1 } };                 // seats available → just consume
+
+    await Event.findOneAndUpdate({}, seatUpdate);
+
+    console.log(`✅ Awardee added by admin: ${name} <${email}> (seat expanded: ${noSeatsLeft})`);
+    return res.status(201).json({
+      success: true,
+      registration: newReg.toJSON(),
+      seatAction: noSeatsLeft ? 'expanded' : 'consumed', // tells frontend which counters to update
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ error: 'A registration with this email already exists.' });
+    }
+    console.error('addAwardee error:', err.message);
+    return res.status(500).json({ error: 'Failed to add awardee.' });
+  }
+};
+
 module.exports = {
   getStats,
   getRegistrations,
@@ -694,5 +720,6 @@ module.exports = {
   markAttendance,
   updateEvaluation,
   exportRegistrations,
-  updateAward
+  updateAward,
+  addAwardee,
 };

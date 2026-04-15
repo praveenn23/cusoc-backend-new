@@ -13,6 +13,7 @@ const {
     updateEvaluation,
     exportRegistrations,
     updateAward,
+    addAwardee,
 } = require('../controllers/adminController');
 
 // ── No-cache middleware for ALL admin routes ─────────────────────────────────
@@ -34,6 +35,7 @@ router.use(adminAuth);
 router.get('/stats', getStats);
 router.get('/registrations', getRegistrations);
 router.get('/registrations/export', exportRegistrations);
+router.post('/registrations/add', addAwardee);
 router.delete('/registrations/:id', deleteRegistration);
 router.get('/event', getEvent);
 router.put('/event', updateEvent);
