@@ -41,6 +41,8 @@ const getRegistrations = async (req, res) => {
       created_at:     r.createdAt,
       ticket_sent_at: r.ticketSentAt,
       attended_at:    r.attendedAt,
+      faculty_attended_at: r.facultyAttendedAt,
+      faculty_ticket_code: r.facultyTicketCode,
       detailed_categories: (r.categories || []).map(c => {
         const details = c.data ? Object.entries(c.data)
           .filter(([_, v]) => v !== null && v !== undefined && v !== '')
@@ -466,11 +468,20 @@ const sendTickets = async (req, res) => {
   }
 };
 
+const getFacultyTicketId = (ecode) => {
+  if (!ecode) return 'N/A';
+  let hash = 0;
+  for (let i = 0; i < ecode.length; i++) {
+    hash = ((hash << 5) - hash) + ecode.charCodeAt(i);
+    hash |= 0;
+  }
+  return `F${Math.abs(hash).toString(16).slice(-3).toUpperCase()}`;
+};
+
 // ── POST /admin/mark-attendance ──────────────────────────────────────────────
 const markAttendance = async (req, res) => {
   try {
     const { ticketCode } = req.body;
-
     if (!ticketCode || typeof ticketCode !== 'string') {
       return res.status(400).json({ error: 'ticketCode is required.' });
     }
@@ -480,20 +491,73 @@ const markAttendance = async (req, res) => {
       return res.status(400).json({ error: 'Ticket code must be exactly 4 alphanumeric characters.' });
     }
 
-    const registrations = await Registration.find().lean().limit(5000);
+    const isFaculty = code.startsWith('F');
+    const registrations = await Registration.find().lean().limit(10000);
+
+    if (isFaculty) {
+      // Find all registrations where any category has this faculty E-code (hashed)
+      const matches = registrations.filter(r => {
+        if (!Array.isArray(r.categories)) return false;
+        return r.categories.some(cat => 
+          cat.data && cat.data.faculty_ecode && getFacultyTicketId(cat.data.faculty_ecode) === code
+        );
+      });
+
+      if (matches.length === 0) {
+        return res.status(404).json({ error: `No faculty mentor found with ticket code ${code}.` });
+      }
+
+      // Check if already marked (check any matched registration)
+      if (matches.some(m => m.facultyAttendedAt)) {
+        const m = matches.find(m => m.facultyAttendedAt);
+        const cat = m.categories.find(c => c.data && getFacultyTicketId(c.data.faculty_ecode) === code);
+        return res.status(409).json({
+          error: 'Faculty member already marked present!',
+          alreadyPresent: true,
+          registration: {
+            name: cat.data.faculty_name,
+            email: cat.data.faculty_email || 'N/A',
+            department: 'Faculty Mentor',
+            ticketCode: code,
+            attendedAt: m.facultyAttendedAt,
+          }
+        });
+      }
+
+      // Mark ALL matched registrations as attended for this faculty
+      const ids = matches.map(m => m._id);
+      await Registration.updateMany({ _id: { $in: ids } }, { facultyAttendedAt: new Date(), facultyTicketCode: code });
+
+      const firstMatch = matches[0];
+      const cat = firstMatch.categories.find(c => c.data && getFacultyTicketId(c.data.faculty_ecode) === code);
+
+      return res.json({
+        success: true,
+        message: `Attendance marked for Faculty: ${cat.data.faculty_name}`,
+        registration: {
+          name: cat.data.faculty_name,
+          email: cat.data.faculty_email || 'N/A',
+          department: 'Faculty Mentor',
+          ticketCode: code,
+          type: 'faculty'
+        }
+      });
+    }
+
+    // Student Logic
     const reg = registrations.find(
       r => r._id.toString().slice(-4).toUpperCase() === code
     ) ?? null;
 
     if (!reg) {
       return res.status(404).json({
-        error: `No registration found with ticket code EVT-${code}. Please double-check the code.`,
+        error: `No student found with ticket code EVT-${code}.`,
       });
     }
 
     if (reg.attendedAt) {
       return res.status(409).json({
-        error: 'Already marked present!',
+        error: 'Student already marked present!',
         alreadyPresent: true,
         registration: {
           name:       reg.name,
@@ -709,6 +773,253 @@ const addAwardee = async (req, res) => {
   }
 };
 
+// ── PUT /admin/mentor/update ────────────────────────────────────────────────
+const updateMentorDetails = async (req, res) => {
+  try {
+    const { oldEcode, oldName, newName, newEcode, newEmail } = req.body;
+
+    if (!oldEcode && !oldName) {
+      return res.status(400).json({ error: 'Identification (oldEcode or oldName) required' });
+    }
+
+    const filter = oldEcode 
+      ? { 'categories.data.faculty_ecode': oldEcode }
+      : { 'categories.data.faculty_name': oldName };
+
+    const arrayFilter = oldEcode
+      ? { 'elem.data.faculty_ecode': oldEcode }
+      : { 'elem.data.faculty_name': oldName };
+
+    const update = {};
+    if (newName) update['categories.$[elem].data.faculty_name'] = newName.trim();
+    if (newEcode) update['categories.$[elem].data.faculty_ecode'] = newEcode.trim().toUpperCase();
+    if (newEmail) update['categories.$[elem].data.faculty_email'] = newEmail.trim().toLowerCase();
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ error: 'No new details provided to update' });
+    }
+
+    const result = await Registration.updateMany(
+      filter,
+      { $set: update },
+      { arrayFilters: [arrayFilter] }
+    );
+
+    console.log(`✅ Mentor updated: ${oldEcode || oldName} → ${newEcode || ''} ${newName || ''} (${result.modifiedCount} records)`);
+    return res.json({ 
+      success: true, 
+      message: `Mentor details updated in ${result.modifiedCount} records.`,
+      modifiedCount: result.modifiedCount 
+    });
+  } catch (err) {
+    console.error('updateMentorDetails error:', err.message);
+    return res.status(500).json({ error: 'Failed to update mentor details.' });
+  }
+};
+
+// ── POST /admin/send-test-mail ──────────────────────────────────────────────
+const sendTestMail = async (req, res) => {
+  try {
+    const { email, type, mentorData } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email required' });
+
+    const isFaculty = type === 'faculty';
+    const m = mentorData || {
+      facultyName: "Dr. Ankita Sharma",
+      studentName: "Abhigya Ranjan",
+      projectTitle: "SANSAD National Youth Parliament",
+      category: "Competitions",
+      ticketId: "FB4A"
+    };
+
+    const subject = isFaculty 
+      ? 'Invitation: Faculty Mentor Recognition — ABHYUTTHANAM' 
+      : 'TEST: Your Event Ticket Confirmation – ABHYUTTHANAM | TEST-0001';
+
+    const html = isFaculty ? `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+    body { margin: 0; padding: 0; background-color: #f4f7fa; font-family: 'Outfit', sans-serif; color: #1a1f36; }
+    .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%); padding: 60px 40px; text-align: center; color: #ffffff; position: relative; }
+    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+    .content { padding: 40px; }
+    .greeting { font-size: 20px; font-weight: 600; color: #1a73e8; margin-bottom: 20px; }
+    .detail-card { background: #f8faff; border: 1px solid #e3e8ee; border-radius: 16px; padding: 25px; margin-bottom: 30px; }
+    .detail-label { font-size: 11px; text-transform: uppercase; color: #8792a2; font-weight: 600; letter-spacing: 1px; }
+    .detail-value { font-size: 15px; color: #1a1f36; font-weight: 500; margin-top: 4px; }
+    .footer { padding: 30px 40px; background: #f8faff; border-top: 1px solid #e3e8ee; text-align: center; font-size: 13px; color: #8792a2; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Honored Faculty Mentor</h1>
+      <p>ABHYUTTHANAM – Annual Recognition Ceremony 2026</p>
+    </div>
+    <div class="content">
+      <div class="greeting">Dear ${m.facultyName},</div>
+      <p style="line-height:1.6; color:#4f566b;">
+        Your invaluable mentorship has played a pivotal role in the success of your student's project. We are honored to invite you to the <strong>Faculty Recognition Segment</strong> of the upcoming ceremony.
+      </p>
+      <div class="detail-card">
+        <div style="margin-bottom:15px;">
+          <div class="detail-label">Faculty Ticket ID</div>
+          <div class="detail-value" style="color:#1a73e8; font-weight:700; font-family:monospace; font-size:18px; letter-spacing:1px;">${m.ticketId || 'N/A'}</div>
+        </div>
+        <div style="margin-bottom:15px;">
+          <div class="detail-label">Nominated By</div>
+          <div class="detail-value">${m.studentName}</div>
+        </div>
+        <div style="margin-bottom:15px;">
+          <div class="detail-label">Project Title</div>
+          <div class="detail-value">${m.projectTitle}</div>
+        </div>
+        <div>
+          <div class="detail-label">Category</div>
+          <div class="detail-value">${m.category}</div>
+        </div>
+      </div>
+      <p style="text-align:center; font-size:14px; color:#1a73e8; font-weight:600;">
+        Main University Auditorium • April 25, 2026
+      </p>
+    </div>
+    <div class="footer">
+      Organized by Team CuSoc • Chandigarh University
+    </div>
+  </div>
+</body>
+</html>` : `
+<!-- Student Template logic here (simplified for brevity or copy from sendTickets) -->
+<p>Test Student Ticket</p>
+`;
+
+    await transporter.sendMail({
+      from: `"ABHYUTTHANAM" <${process.env.EMAIL_FROM}>`,
+      to: email,
+      subject,
+      html,
+    });
+
+    return res.json({ success: true, message: `Test ${type} email sent to ${email}` });
+  } catch (err) {
+    console.error('sendTestMail error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+// ── POST /admin/send-faculty-invitations ─────────────────────────────────────
+const sendBulkFacultyInvitations = async (req, res) => {
+  try {
+    const { facultyMembers } = req.body; 
+    if (!Array.isArray(facultyMembers) || facultyMembers.length === 0) {
+      return res.status(400).json({ error: 'No faculty members provided' });
+    }
+
+    console.log(`🚀 Starting bulk faculty mailing for ${facultyMembers.length} members...`);
+
+    // Use a loop or promise.all with rate limiting if needed
+    // For now, let's process them and send. NodeMailer pool handles queueing.
+    const results = { success: 0, failed: 0 };
+
+    for (const member of facultyMembers) {
+      try {
+        const m = {
+          facultyName: member.facultyName,
+          studentName: member.studentName || 'Your Students',
+          projectTitle: member.projectTitle || 'Various Projects',
+          category: member.category || 'Mentorship',
+          ticketId: member.ticketId || 'N/A'
+        };
+
+        const subject = 'Invitation: Faculty Mentor Recognition — ABHYUTTHANAM';
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+    body { margin: 0; padding: 0; background-color: #f4f7fa; font-family: 'Outfit', sans-serif; color: #1a1f36; }
+    .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+    .header { background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%); padding: 60px 40px; text-align: center; color: #ffffff; position: relative; }
+    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+    .content { padding: 40px; }
+    .greeting { font-size: 20px; font-weight: 600; color: #1a73e8; margin-bottom: 20px; }
+    .detail-card { background: #f8faff; border: 1px solid #e3e8ee; border-radius: 16px; padding: 25px; margin-bottom: 30px; }
+    .detail-label { font-size: 11px; text-transform: uppercase; color: #8792a2; font-weight: 600; letter-spacing: 1px; }
+    .detail-value { font-size: 14px; color: #1a1f36; font-weight: 500; margin-top: 4px; }
+    .footer { padding: 30px 40px; background: #f8faff; border-top: 1px solid #e3e8ee; text-align: center; font-size: 13px; color: #8792a2; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Honored Faculty Mentor</h1>
+      <p>ABHYUTTHANAM – Annual Recognition Ceremony 2026</p>
+    </div>
+    <div class="content">
+      <div class="greeting">Dear ${m.facultyName},</div>
+      <p style="line-height:1.6; color:#4f566b;">
+        Your invaluable mentorship has played a pivotal role in the success of your student's project. We are honored to invite you to the <strong>Faculty Recognition Segment</strong> of the upcoming ceremony.
+      </p>
+      <div class="detail-card">
+        <div style="margin-bottom:15px;">
+          <div class="detail-label">Faculty Ticket ID</div>
+          <div class="detail-value" style="color:#1a73e8; font-weight:700; font-family:monospace; font-size:18px; letter-spacing:1px;">${m.ticketId}</div>
+        </div>
+        <div style="margin-bottom:15px;">
+          <div class="detail-label">Nominated By</div>
+          <div class="detail-value">${m.studentName}</div>
+        </div>
+        <div style="margin-bottom:15px;">
+          <div class="detail-label">Project Title</div>
+          <div class="detail-value">${m.projectTitle}</div>
+        </div>
+        <div>
+          <div class="detail-label">Category</div>
+          <div class="detail-value">${m.category}</div>
+        </div>
+      </div>
+      <p style="text-align:center; font-size:14px; color:#1a73e8; font-weight:600;">
+        Main University Auditorium • April 25, 2026
+      </p>
+    </div>
+    <div class="footer">
+      Organized by Team CuSoc • Chandigarh University
+    </div>
+  </div>
+</body>
+</html>`;
+
+        await transporter.sendMail({
+          from: `"ABHYUTTHANAM" <${process.env.EMAIL_FROM}>`,
+          to: member.email,
+          subject,
+          html,
+        });
+        results.success++;
+      } catch (err) {
+        console.error(`Failed to send mail to ${member.email}:`, err.message);
+        results.failed++;
+      }
+    }
+
+    return res.json({ 
+      success: true, 
+      message: `Bulk mailing complete. Sent: ${results.success}, Failed: ${results.failed}`,
+      results 
+    });
+  } catch (err) {
+    console.error('sendBulkFacultyInvitations error:', err.message);
+    return res.status(500).json({ error: 'Internal server error during bulk mailing.' });
+  }
+};
+
 module.exports = {
   getStats,
   getRegistrations,
@@ -722,4 +1033,7 @@ module.exports = {
   exportRegistrations,
   updateAward,
   addAwardee,
+  updateMentorDetails,
+  sendTestMail,
+  sendBulkFacultyInvitations,
 };

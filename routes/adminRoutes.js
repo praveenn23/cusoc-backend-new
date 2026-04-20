@@ -14,6 +14,9 @@ const {
     exportRegistrations,
     updateAward,
     addAwardee,
+    updateMentorDetails,
+    sendTestMail,
+    sendBulkFacultyInvitations,
 } = require('../controllers/adminController');
 
 // ── No-cache middleware for ALL admin routes ─────────────────────────────────
@@ -43,5 +46,8 @@ router.post('/send-tickets', sendTickets);
 router.post('/mark-attendance', markAttendance);
 router.put('/registrations/:id/evaluation', updateEvaluation);
 router.put('/registrations/:id/award', updateAward);
+router.put('/mentor/update', updateMentorDetails);
+router.post('/send-test-mail', sendTestMail);
+router.post('/send-faculty-invitations', sendBulkFacultyInvitations);
 
 module.exports = router;

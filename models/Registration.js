@@ -17,6 +17,9 @@ const registrationSchema = new mongoose.Schema(
     evaluation_status: { type: String, default: 'Pending' },
     ticketSentAt: { type: Date,   default: null },
     attendedAt:   { type: Date,   default: null },
+    // Faculty specific
+    facultyTicketCode: { type: String, default: null },
+    facultyAttendedAt: { type: Date,   default: null },
   },
   { timestamps: true }
 );
@@ -29,6 +32,8 @@ registrationSchema.set('toJSON', {
     ret.created_at     = ret.createdAt;
     ret.ticket_sent_at = ret.ticketSentAt;
     ret.attended_at    = ret.attendedAt;
+    ret.faculty_attended_at = ret.facultyAttendedAt;
+    ret.faculty_ticket_code = ret.facultyTicketCode;
     delete ret._id;
     delete ret.__v;
     return ret;
