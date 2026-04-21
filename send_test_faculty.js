@@ -98,11 +98,11 @@ const html = `
       
       <div style="text-align: center;">
         <p style="font-size: 14px; color: #4f566b; margin-bottom: 10px;">Event Date & Venue</p>
-        <div style="font-size: 16px; font-weight: 600; color: #1a1f36;">April 25, 2026 • Main University Auditorium</div>
+        <div style="font-size: 16px; font-weight: 600; color: #1a1f36;">April 22, 2026 • D1 Auditorium</div>
       </div>
     </div>
     <div class="footer">
-      <p>Organized by Team CuSoc</p>
+      <p>Organized by Office of Academic Affairs</p>
       <p>Chandigarh University • Office of Academic Affairs</p>
       <p style="font-size: 12px; margin-top: 15px; opacity: 0.7;">© 2026 ABHYUTTHANAM | All Rights Reserved</p>
     </div>

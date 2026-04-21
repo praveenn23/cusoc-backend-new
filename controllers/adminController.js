@@ -885,11 +885,11 @@ const sendTestMail = async (req, res) => {
         </div>
       </div>
       <p style="text-align:center; font-size:14px; color:#1a73e8; font-weight:600;">
-        Main University Auditorium • April 25, 2026
+        D1 Auditorium • April 22, 2026
       </p>
     </div>
     <div class="footer">
-      Organized by Team CuSoc • Chandigarh University
+      Organized by Office of Academic Affairs • Chandigarh University
     </div>
   </div>
 </body>
@@ -986,11 +986,11 @@ const sendBulkFacultyInvitations = async (req, res) => {
         </div>
       </div>
       <p style="text-align:center; font-size:14px; color:#1a73e8; font-weight:600;">
-        Main University Auditorium • April 25, 2026
+        D1 Auditorium • April 22, 2026
       </p>
     </div>
     <div class="footer">
-      Organized by Team CuSoc • Chandigarh University
+      Organized by Office of Academic Affairs • Chandigarh University
     </div>
   </div>
 </body>
